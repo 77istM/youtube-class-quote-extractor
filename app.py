@@ -30,7 +30,8 @@ def extract_video_id(value: str) -> str:
         if VIDEO_ID_PATTERN.fullmatch(video_id):
             return video_id
 
-    if "youtube.com" in host:
+    is_youtube_domain = host == "youtube.com" or host.endswith(".youtube.com")
+    if is_youtube_domain:
         if path == "watch":
             video_id = parse_qs(parsed.query).get("v", [""])[0]
             if VIDEO_ID_PATTERN.fullmatch(video_id):
