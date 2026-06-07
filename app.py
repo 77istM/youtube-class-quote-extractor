@@ -63,13 +63,19 @@ def _to_mmss(seconds: float) -> str:
     return f"{mins:02d}:{secs:02d}"
 
 
+def _transcript_field(item, field: str, default=""):
+    if isinstance(item, dict):
+        return item.get(field, default)
+    return getattr(item, field, default)
+
+
 def build_transcript_text(transcript: list[dict], limit: int = 200) -> str:
     lines = []
     for item in transcript[:limit]:
-        text = str(item.get("text", "")).replace("\n", " ").strip()
+        text = str(_transcript_field(item, "text", "")).replace("\n", " ").strip()
         if not text:
             continue
-        lines.append(f"[{_to_mmss(float(item.get('start', 0)))}] {text}")
+        lines.append(f"[{_to_mmss(float(_transcript_field(item, 'start', 0)))}] {text}")
     return "\n".join(lines)
 
 
