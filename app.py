@@ -1,5 +1,8 @@
 import json
 import re
+import os
+from typing import Any
+from collections.abc import Sequence
 from urllib.parse import parse_qs, urlparse
 
 import google.generativeai as genai
@@ -8,6 +11,7 @@ from youtube_transcript_api import YouTubeTranscriptApi
 
 
 VIDEO_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]{11}$")
+DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
 
 
 def extract_video_id(value: str) -> str:
@@ -46,7 +50,7 @@ def extract_video_id(value: str) -> str:
     raise ValueError("Could not find a valid YouTube video ID.")
 
 
-def fetch_transcript(video_id: str) -> list[dict]:
+def fetch_transcript(video_id: str) -> Any:
     transcript_api = YouTubeTranscriptApi()
     transcript = transcript_api.fetch(video_id)
     if not transcript:
@@ -63,13 +67,13 @@ def _to_mmss(seconds: float) -> str:
     return f"{mins:02d}:{secs:02d}"
 
 
-def _transcript_field(item, field: str, default=""):
+def _transcript_field(item, field: str, default: object = ""):
     if isinstance(item, dict):
         return item.get(field, default)
     return getattr(item, field, default)
 
 
-def build_transcript_text(transcript: list[dict], limit: int = 200) -> str:
+def build_transcript_text(transcript: Any, limit: int = 200) -> str:
     lines = []
     for item in transcript[:limit]:
         text = str(_transcript_field(item, "text", "")).replace("\n", " ").strip()
@@ -95,13 +99,12 @@ def parse_json_response(response_text: str) -> dict:
         raise ValueError("Gemini response did not contain valid JSON.")
 
 
-def extract_quotes_with_gemini(transcript: list[dict], api_key: str) -> list[dict]:
+def extract_quotes_with_gemini(transcript: Any, api_key: str) -> list[dict]:
     transcript_text = build_transcript_text(transcript, limit=300)
     if not transcript_text:
         raise ValueError("Transcript text is empty after preprocessing.")
 
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    genai.configure(api_key=api_key)  # type: ignore[attr-defined]
     prompt = f"""
 You are extracting memorable quotes from a university lecture transcript.
 Pick the 5 best quotes ranked by insight and impact.
@@ -128,8 +131,21 @@ Transcript:
 {transcript_text}
 """
 
-    response = model.generate_content(prompt)
-    parsed = parse_json_response(getattr(response, "text", ""))
+    model_candidates = [DEFAULT_GEMINI_MODEL, "gemini-1.5-flash-001", "gemini-1.5-flash"]
+    last_error = None
+
+    for model_name in model_candidates:
+        try:
+            model = genai.GenerativeModel(model_name)  # type: ignore[attr-defined]
+            response = model.generate_content(prompt)
+            parsed = parse_json_response(getattr(response, "text", ""))
+            break
+        except Exception as exc:
+            last_error = exc
+            parsed = None
+    else:
+        raise RuntimeError(f"Gemini request failed for all model options: {last_error}")
+
     quotes = parsed.get("quotes") if isinstance(parsed, dict) else None
 
     if not isinstance(quotes, list) or not quotes:
@@ -168,10 +184,22 @@ st.write(
     "`youtube-transcript-api` + Google Gemini (free tier)."
 )
 
+
+def get_gemini_api_key() -> str:
+    try:
+        secrets = st.secrets
+        if "GEMINI_API_KEY" in secrets:
+            return str(secrets["GEMINI_API_KEY"]).strip()
+    except Exception:
+        pass
+    return os.getenv("GEMINI_API_KEY", "").strip()
+
+
 with st.sidebar:
     st.header("Configuration")
-    gemini_api_key = st.text_input("Gemini API Key", type="password")
-    st.caption("Get a free key at https://aistudio.google.com/app/apikeys")
+    saved_api_key = get_gemini_api_key()
+    gemini_api_key = st.text_input("Gemini API Key", type="password", value=saved_api_key)
+    st.caption("Store it in Streamlit secrets or the GEMINI_API_KEY environment variable to avoid retyping.")
 
 st.subheader("1) Enter a YouTube URL or Video ID")
 video_input = st.text_input(
