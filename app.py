@@ -47,7 +47,8 @@ def extract_video_id(value: str) -> str:
 
 
 def fetch_transcript(video_id: str) -> list[dict]:
-    transcript = YouTubeTranscriptApi.get_transcript(video_id)
+    transcript_api = YouTubeTranscriptApi()
+    transcript = transcript_api.fetch(video_id)
     if not transcript:
         raise ValueError("Transcript is empty for this video.")
     return transcript
